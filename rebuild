@@ -1,0 +1,7 @@
+#!/bin/bash
+
+docker image rm galimovdi/ovpn-ubuntu:latest
+
+docker build -t galimovdi/ovpn-ubuntu .
+
+echo -e "\n \e[92mRebuild success...\n\e[39m "

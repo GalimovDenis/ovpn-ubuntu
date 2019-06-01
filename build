@@ -1,0 +1,49 @@
+#!/bin/bash
+
+# Identifier of server
+OVPN="TelRanH2"
+
+# name of container
+OVPN_NAME=$OVPN"-ovpn"
+
+# Network name in "docker network"
+NETWORK="TelRanH2"
+
+# IP or domain name of server
+OVPN_SERVER="telranh2.ddns.net"
+
+# name of docker volume
+OVPN_DATA="ovpn-data-"$OVPN
+
+# Stop the container if it is running
+if [ $(docker ps -qf name=)  ] ; then docker stop $(docker ps -q) ; fi
+
+# Delete the container if it is exist
+if [ $(docker ps -aq) ] ; then docker rm $(docker ps -aq) ; fi
+
+# create volume if not exist, generate config files and certificates
+docker volume create --name $OVPN_DATA && \
+echo -e "\n\e[92m Created docker volume \e[0m $OVPN_DATA \n"
+
+if [ $? -ne 0 ]; then exit 1; fi
+echo -e "\e[92m Start generation of conf files \e[0m\n"
+docker run -v $OVPN_DATA:/etc/openvpn --log-driver=none --rm galimovdi/ovpn-ubuntu ovpn_genconfig -u udp://$OVPN_SERVER && \
+echo -e "\e[92m Done\n Initialisation of PKI\e[0m\n" &&\
+docker run -v $OVPN_DATA:/etc/openvpn --log-driver=none --rm -it galimovdi/ovpn-ubuntu ovpn_initpki nopass && \
+echo -e "\n\e[92m Generated config files\e[0m\n"
+
+if [ $? -ne 0 ]; then exit 1; fi
+# For each line in file "crt-clients" create and download certificates into folder "crt" with name in uppercase
+
+mkdir -p crt
+
+while read CLIENT
+do docker run -v $OVPN_DATA:/etc/openvpn --log-driver=none --rm galimovdi/ovpn-ubuntu easyrsa build-client-full ${CLIENT^^} nopass && \
+   echo -e "\n \e[92m Created certificate for ${CLIENT^^} \e[0m\n"  && \
+   docker run -v $OVPN_DATA:/etc/openvpn --log-driver=none --rm galimovdi/ovpn-ubuntu ovpn_getclient ${CLIENT^^} > crt/${CLIENT^^}.ovpn && \
+   echo -e "\n \e[92m Downloaded certificat for $CLIENT \e[0m\n"
+done < crt-clients
+
+if [ $? -ne 0 ]; then exit 1; fi
+# Start server
+docker run --net $NETWORK --name $OVPN_NAME -h gw -v $OVPN_DATA:/etc/openvpn -d -p 1194:1194/udp --cap-add=NET_ADMIN galimovdi/ovpn-ubuntu
